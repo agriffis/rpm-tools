@@ -1,0 +1,95 @@
+#!/bin/bash
+#
+# unrpm: unpack an rpm into a build dir
+#
+
+main() {
+    declare cmd=${0##*/}
+    declare version=1.0
+    declare args usage
+    read -d '' usage <<EOT
+usage: unrpm pkg-1.0.src.rpm...
+
+        -f   --force          Unpack into an existing dir
+        -l   --list           List contents rather than unpack
+        -p   --prep           Prep sources after unpack
+        -v   --verbose        Be louder
+
+             --help           Show this help message
+             --version        Show version information
+EOT
+
+    # Use /usr/bin/getopt which supports GNU-style long options
+    declare opt_force=false
+    declare opt_list=false
+    declare opt_prep=false
+    declare opt_verbose=false
+    args=$(getopt -n "$0" \
+    -o flpv --long force,help,list,prep,verbose,version -- "$@") || exit
+    eval set -- "$args"
+    while true; do
+        case $1 in
+            -f|--force) opt_force=true ; shift ;;
+            -l|--list) opt_list=true ; shift ;;
+            -p|--prep) opt_prep=true ; shift ;;
+            -v|--verbose) opt_verbose=true ; shift ;;
+            --help) echo "$usage"; exit 0 ;;
+            --version) echo "$cmd $version"; exit 0 ;;
+            --) shift; break ;;
+            *) die "failed to process cmdline args" ;;
+        esac
+    done
+
+    if [[ -z $1 ]]; then
+        die "missing argument, try --help"
+    elif [[ ! -r $1 ]]; then
+        die "can't read: $1"
+    fi
+
+    set -e
+
+    declare dirs rpm repo v
+    $opt_verbose && v=v ||:
+    for rpm in "$@"; do
+        repo=$(rpm -qp --qf '%{N}-%{V}-%{R}' "$rpm")
+        dirs=( "$repo/"{BUILD,RPMS,SOURCES,SPECS,SRPMS} )
+
+        if $opt_list; then
+            rpm2cpio $rpm | cpio --quiet -it$v | \
+            sed "s|^[./]*/*|$repo/SOURCES/|;/\\.spec/s/SOURCES/SPECS/"
+            continue
+        fi
+
+        if $opt_force; then
+            mkdir -p$v "${dirs[@]}"
+        else
+            mkdir ${v:+-v} $repo "${dirs[@]}"
+        fi
+
+        rm -f$v $repo/SOURCES/* $repo/SPECS/*
+        rpm2cpio $rpm | ( cd $repo/SOURCES; cpio --quiet -imd$v; )
+        mv ${v:+-v} $repo/SOURCES/*.spec $repo/SPECS
+
+        if $opt_prep; then
+            rpmbuild -bp $repo/SPECS/*.spec
+        fi
+    done
+
+    exit $?
+}
+
+echo() {
+    printf '%s\n' "$*"
+}
+
+die() {
+    declare status=1
+    if [[ $1 == ?* && $1 != *[!0-9]* ]]; then
+        status=$1
+        shift
+    fi
+    echo "$cmd: ${*:-error}" >&2
+    exit $status
+}
+
+main "$@"
