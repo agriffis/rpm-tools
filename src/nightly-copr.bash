@@ -13,7 +13,9 @@ git pull origin
 git checkout copr
 git merge master --no-commit
 git status --porcelain -uno | grep -m1 . || exit 0
-nightly-spec.py *.spec
-git add *.spec
+if ! ls *.spec.rpkg &>/dev/null; then
+    nightly-spec.py *.spec
+    git add *.spec
+fi
 git -c commit.gpgsign=false commit --no-edit
-git push agriffis --all
+git push agriffis --mirror
